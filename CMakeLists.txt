@@ -12,6 +12,8 @@ find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge 4.1.0 REQUIRED)
 find_package(OpenCV 5  REQUIRED)
 find_package(CURL REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 # add_library(${PROJECT_NAME} SHARED
 #   src/match_streetview.cpp
@@ -24,23 +26,36 @@ include_directories(
 
 )
 
-add_executable(${PROJECT_NAME}
-  src/match_streetview.cpp
+add_executable(${PROJECT_NAME}_node
   src/vps_slam.cpp
+  src/match_streetview.cpp
+  src/pose_estimator.cpp
 )
 
-ament_target_dependencies(${PROJECT_NAME}
+target_include_directories(${PROJECT_NAME}_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${OpenCV_INCLUDE_DIRS}
+  ${CURL_INCLUDE_DIRS}
+  ${Eigen3_INCLUDE_DIRS}
+)
+
+ament_target_dependencies(${PROJECT_NAME}_node
   rclcpp
+  std_msgs
   sensor_msgs
+  geometry_msgs
   cv_bridge
 )
 
-target_link_libraries(${PROJECT_NAME}
+target_link_libraries(${PROJECT_NAME}_node
   ${OpenCV_LIBS}
   ${CURL_LIBRARIES}
+  Eigen3::Eigen
+  nlohmann_json::nlohmann_json
 )
 install(TARGETS
-  ${PROJECT_NAME}
+  ${PROJECT_NAME}_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -1,6 +1,12 @@
+#include <Eigen/Dense>
 #include <iostream>
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/eigen.hpp>
 #include <curl/curl.h>
+#include <nlohmann/json.hpp>
+#include <cmath>
+
+using json = nlohmann::json;
 
 #include "vps_slam/match_streetview.hpp"
 
@@ -11,87 +17,134 @@ double tot_start_time;
  * This class provides methods to query the Google Street View API and retrieve images based on GPS coordinates.
  * It also allows setting parameters such as latitude, longitude, and radius for the query.
  */
-MatchGoogleStreetView::MatchGoogleStreetView() {
-        // SERVER_URL = "https://" + ipaddr;
-        gps_lat = 37.513366;
-        gps_long = 127.056132;
-        roi_radius = 100;
+MatchGoogleStreetView::MatchGoogleStreetView() 
+    : gps_lat(0.0)
+    , gps_long(0.0)
+    , has_streetview_image_(false) {
+}
+
+void MatchGoogleStreetView::SetGPSCoordinates(double lat, double lon) {
+    gps_lat = lat;
+    gps_long = lon;
+    has_streetview_image_ = false;  // Reset flag when GPS changes
+}
+
+size_t MatchGoogleStreetView::WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    size_t realsize = size * nmemb;
+    std::vector<unsigned char>* mem = (std::vector<unsigned char>*)userp;
+    mem->insert(mem->end(), (unsigned char*)contents, (unsigned char*)contents + realsize);
+    return realsize;
+}
+
+size_t MatchGoogleStreetView::MetadataCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    userp->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+MatchGoogleStreetView::StreetViewMetadata MatchGoogleStreetView::QueryMetadata() {
+    StreetViewMetadata metadata;
+    metadata.available = false;
+
+    std::string serverUrl = "https://maps.googleapis.com/maps/api/streetview/metadata";
+    std::string apiKey = "YOUR_API_KEY";  // Replace with your API key
+    
+    std::string fullUrl = serverUrl + "?location=" + 
+                         std::to_string(gps_lat) + "," + 
+                         std::to_string(gps_long) + 
+                         "&key=" + apiKey;
+
+    CURL *curl;
+    CURLcode res;
+    std::string readBuffer;
+    
+    curl = curl_easy_init();
+    if(curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, fullUrl.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, MetadataCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+        res = curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+
+        if(res == CURLE_OK) {
+            ParseMetadataJson(readBuffer, metadata);
+        } else {
+            RCLCPP_ERROR(rclcpp::get_logger("vps_slam"), 
+                        "Failed to get metadata: %s", curl_easy_strerror(res));
+        }
+    }
+
+    return metadata;
+}
+
+bool MatchGoogleStreetView::ParseMetadataJson(const std::string& json_str, 
+                                            StreetViewMetadata& metadata) {
+    try {
+        json j = json::parse(json_str);
+        
+        if (j["status"] == "OK") {
+            metadata.available = true;
+            metadata.latitude = j["location"]["lat"].get<double>();
+            metadata.longitude = j["location"]["lng"].get<double>();
+            metadata.pano_id = j["pano_id"].get<std::string>();
+            
+            if (j.contains("heading")) {
+                metadata.heading = j["heading"].get<double>();
+            } else {
+                double dx = metadata.longitude - gps_long;
+                double dy = metadata.latitude - gps_lat;
+                metadata.heading = std::atan2(dx, dy) * 180.0 / M_PI;
+            }
+            
+            RCLCPP_INFO(rclcpp::get_logger("vps_slam"), 
+                       "Found Street View image at: %f, %f, heading: %f", 
+                       metadata.latitude, metadata.longitude, metadata.heading);
+            return true;
+        }
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(rclcpp::get_logger("vps_slam"), 
+                    "Error parsing metadata JSON: %s", e.what());
+    }
+    return false;
+}
+
+cv::Mat MatchGoogleStreetView::QueryStreetViewImage(const StreetViewMetadata& metadata) {
+    if (!metadata.available) {
+        return cv::Mat();
+    }
+
+    std::string serverUrl = "https://maps.googleapis.com/maps/api/streetview";
+    std::string apiKey = "YOUR_API_KEY";  // Replace with your API key
+    
+    std::string fullUrl = serverUrl + "?size=640x480" +
+                         "&location=" + std::to_string(metadata.latitude) + 
+                         "," + std::to_string(metadata.longitude) +
+                         "&heading=" + std::to_string(metadata.heading) +
+                         "&fov=90" +
+                         "&pitch=0" +
+                         "&key=" + apiKey;
+
+    if (!metadata.pano_id.empty()) {
+        fullUrl += "&pano=" + metadata.pano_id;
+    }
+
+    CURL *curl;
+    CURLcode res;
+    std::vector<unsigned char> buffer;
+    
+    curl = curl_easy_init();
+    if(curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, fullUrl.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+        res = curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+
+        if(res == CURLE_OK && !buffer.empty()) {
+            return cv::imdecode(cv::Mat(buffer), cv::IMREAD_COLOR);
+        }
     }
     
-    // Callback function writes data to a std::vector<unsigned char>
-    size_t MatchGoogleStreetView::WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
-        size_t real_size = size * nmemb;
-        auto *mem = static_cast<std::vector<unsigned char> *>(userp);
-        const auto *start = static_cast<unsigned char *>(contents);
-        mem->insert(mem->end(), start, start + real_size);
-        return real_size;
-    }
-
-
-    cv::Mat MatchGoogleStreetView::QueryToServer() {
-
-        std::string serverUrl = "https://maps.googleapis.com/maps/api/"; // Make sure this is correct
-        std::string apiKey = ""; // Your actual API key
-        // Ensure SERVER_URL ends with / or start the path with / in the next line if it doesn't
-        //center=40.714728,-73.998672&zoom=10&size=400x400&maptype=satellite&key=
-
-        // maps/api/streetview/metadata?size=640x480&location=41.393242,2.191709&fov=73&key=
-        
-        std::string viewtype = "streetview"; //staticmap, 
-        std::string fullUrl = serverUrl + "streetview?size=640x480&location=" +
-                            std::to_string(gps_lat) + "," + std::to_string(gps_long) + "&key=" + apiKey + "&&heading=200&fov=73";
-
-        CURL *curl;
-        CURLcode res;
-        curl = curl_easy_init();
-        std::vector<unsigned char> buffer;
-
-        if(curl) {
-            curl_easy_setopt(curl, CURLOPT_URL, fullUrl.c_str());
-            std::cout << "URL: " << fullUrl << std::endl;
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&buffer);
-            res = curl_easy_perform(curl);
-            curl_easy_cleanup(curl);
-
-            if(res != CURLE_OK) {
-                std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
-                return cv::Mat();
-            }
-        }
-
-        if(buffer.empty()) {
-            std::cerr << "No data received from server." << std::endl;
-            return cv::Mat();
-        }
-        return cv::imdecode(cv::Mat(buffer, true), cv::IMREAD_COLOR);
-
-    }
-
-    void MatchGoogleStreetView::SetParams(double gps_lat, double gps_long, double roi_radius) {
-        this->gps_lat = gps_lat;
-        this->gps_long = gps_long;
-        this->roi_radius = roi_radius;
-    }
-
-
-
-    // std::tuple<std::string, double, double, std::string, double, int> GetStreetViewInfo(int imgidx, const json& res) {
-    //     int numImgs = res["features"].size();
-    //     double imgLong = res["features"][imgidx]["properties"]["longitude"];
-    //     double imgLat = res["features"][imgidx]["properties"]["latitude"];
-    //     std::string imgDate = res["features"][imgidx]["properties"]["date"];
-    //     double imgHeading = res["features"][imgidx]["properties"]["heading"];
-    //     std::string imgID = res["features"][imgidx]["properties"]["id"];
-    //     return std::make_tuple(imgID, imgLat, imgLong, imgDate, imgHeading, numImgs);
-    // }
-// };
-
-cv::Mat MatchGoogleStreetView::GetStreetView(double gps_lat, double gps_long, double roi_radius) {
-    MatchGoogleStreetView isv;
-    SetParams(gps_lat, gps_long, roi_radius);
-    // isv.SetReqDict();
-    return QueryToServer();
+    return cv::Mat();
 }
 
 cv::Mat MatchGoogleStreetView::GetMatchingPoints(const cv::Mat& img1, const cv::Mat& img2) {
@@ -218,4 +271,58 @@ int MatchGoogleStreetView::retrieve(double gps_lat, double gps_long, double roi_
     cv::waitKey(0);
 
     return 0;
+}
+
+cv::Mat MatchGoogleStreetView::GetHomography(const cv::Mat& current_image) {
+    // First, query metadata to get exact location
+    StreetViewMetadata metadata = QueryMetadata();
+    
+    if (!metadata.available) {
+        RCLCPP_WARN(rclcpp::get_logger("vps_slam"), 
+                   "No Street View image available at current location");
+        return cv::Mat();
+    }
+
+    // Get Street View image using metadata
+    last_streetview_image_ = QueryStreetViewImage(metadata);
+    if (last_streetview_image_.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("vps_slam"), 
+                    "Failed to get Street View image");
+        return cv::Mat();
+    }
+
+    // Store metadata for pose estimation
+    last_metadata_ = metadata;
+    
+    // Get matching points and compute homography
+    return GetMatchingPoints(current_image, last_streetview_image_);
+}
+
+cv::Mat MatchGoogleStreetView::GetStreetView(double lat, double lon, double radius) {
+    // Store coordinates for later use
+    gps_lat = lat;
+    gps_long = lon;
+
+    // First get metadata to find exact location
+    StreetViewMetadata metadata = QueryMetadata();
+    
+    if (!metadata.available) {
+        RCLCPP_WARN(rclcpp::get_logger("vps_slam"), 
+                   "No Street View image available at location: %f, %f", lat, lon);
+        return cv::Mat();
+    }
+
+    // Get image using metadata
+    cv::Mat streetview_img = QueryStreetViewImage(metadata);
+    if (streetview_img.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("vps_slam"), 
+                    "Failed to get Street View image");
+        return cv::Mat();
+    }
+
+    last_streetview_image_ = streetview_img;
+    last_metadata_ = metadata;
+    has_streetview_image_ = true;
+
+    return streetview_img;
 }
