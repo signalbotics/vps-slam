@@ -100,6 +100,70 @@ A ROS2 package that implements visual positioning using Google Street View image
 - Camera calibration integration
 - Full SLAM implementation
 
+## Technical Details
+
+### Pose from Homography
+
+The homography matrix H relates points between the Street View image and current camera image:
+x₂ = Hx₁
+
+For calibrated cameras, H can be decomposed into rotation (R) and translation (t):
+H = K(R + t·nᵀ/d)K⁻¹
+
+where:
+- K is the camera intrinsic matrix
+- R is the rotation matrix
+- t is the translation vector
+- n is the normal vector of the plane
+- d is the distance to the plane
+
+### Pose Update Process
+
+1. GPS Update:
+   - Position: p_gps = [lat, lon, alt]
+   - Covariance: Σ_gps
+
+2. Visual Update from Homography:
+   - Relative rotation: R_rel
+   - Relative translation: t_rel (up to scale)
+   - Street View position: p_sv = [lat_sv, lon_sv, alt_sv]
+
+3. Pose Fusion:
+   - Absolute rotation: R = R_rel * R_sv
+   - Scale-corrected translation: t = s * t_rel 
+     where s is estimated from GPS distance
+   - Final position: p = p_sv + R * t
+
+[PENDING IMPLEMENTATION]
+
+4. Uncertainty Estimation:
+   - Visual uncertainty: Σ_vis from feature matching residuals
+   - Fused covariance: Σ = (Σ_gps⁻¹ + Σ_vis⁻¹)⁻¹
+
+5. State Update:
+   - Extended Kalman Filter prediction/update cycle
+   - State vector: x = [position, orientation, velocity]
+
+### Street View Metadata Usage
+
+1. Location Refinement:
+   - Input: Approximate GPS position (lat, lon)
+   - Metadata provides:
+     - Exact panorama location (lat_sv, lon_sv)
+     - Panorama ID (pano_id) for consistent image retrieval
+     - Heading information
+
+2. Image Retrieval Optimization:
+   - Using pano_id ensures we get the exact same panorama view
+   - Heading is used to align the Street View image with our camera view
+   - FOV (field of view) is set to 90° to match typical camera settings
+
+3. Pose Graph Integration:
+   [PENDING IMPLEMENTATION]
+   - Store panorama IDs as unique nodes
+   - Use metadata locations as absolute position constraints
+   - Track visited panoramas to build a connected graph
+
 ## License
 
 This project is licensed under the GNU GPLv3 License - see the [LICENSE](LICENSE) file for details.
