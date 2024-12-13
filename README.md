@@ -42,7 +42,7 @@ A ROS2 package that implements visual positioning using Google Street View image
 
 2. Clone the repository:
     ```
-    git clone https://github.com/yourusername/vps_slam.git
+    git clone https://github.com/brukg/vps-slam.git
     ```
 
 3. Install dependencies:
