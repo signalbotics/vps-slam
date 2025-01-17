@@ -18,11 +18,13 @@ public:
     MatchGoogleStreetView();
     
     void SetGPSCoordinates(double lat, double lon);
+    double GetLatitude() const { return gps_lat; }
+    double GetLongitude() const { return gps_long; }
     StreetViewMetadata QueryMetadata();
     cv::Mat QueryStreetViewImage(const StreetViewMetadata& metadata);
     cv::Mat GetHomography(const cv::Mat& current_image);
-    cv::Mat GetMatchingPoints(const cv::Mat& img1, const cv::Mat& img2);
-    cv::Mat GetStreetView(double lat, double lon, double radius);
+    std::pair<cv::Mat, cv::Mat>  GetMatchingPoints(const cv::Mat& img1, const cv::Mat& img2);
+    std::pair<cv::Mat, StreetViewMetadata> GetStreetView(double lat, double lon, double radius);
     
     // Make this public for visualization
     cv::Mat last_streetview_image_;
@@ -32,6 +34,7 @@ private:
     double gps_long;
     StreetViewMetadata last_metadata_;
     bool has_streetview_image_;
+    std::string apiKey; 
 
     static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp);
     static size_t MetadataCallback(void* contents, size_t size, size_t nmemb, std::string* userp);

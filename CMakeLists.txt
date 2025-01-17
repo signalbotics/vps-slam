@@ -10,7 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge 4.1.0 REQUIRED)
-find_package(OpenCV 5  REQUIRED)
+find_package(OpenCV 5 REQUIRED)
 find_package(CURL REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
@@ -23,7 +23,7 @@ include_directories(
   include
   ${OpenCV_INCLUDE_DIRS}
   ${CURL_INCLUDE_DIRS}
-
+  ${Eigen3_INCLUDE_DIRS}
 )
 
 add_executable(${PROJECT_NAME}_node
@@ -54,9 +54,22 @@ target_link_libraries(${PROJECT_NAME}_node
   Eigen3::Eigen
   nlohmann_json::nlohmann_json
 )
+
 install(TARGETS
   ${PROJECT_NAME}_node
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install launch files
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# Install config files
+install(DIRECTORY
+  config
+  DESTINATION share/${PROJECT_NAME}
 )
 
 ament_export_include_directories(include)

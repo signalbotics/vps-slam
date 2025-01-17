@@ -30,7 +30,7 @@ namespace vps_slam
       rclcpp::Publisher<geometry_msgs::msg::PoseWithCovariance>::SharedPtr pose_pub_;
       cv::Mat K_;
 
-      void processVisualData(const cv::Mat& H);
+      void processVisualData(const cv::Mat& H, const MatchGoogleStreetView::StreetViewMetadata& metadata);
 
       // Add new publishers for visualization
       rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr matches_pub_;
