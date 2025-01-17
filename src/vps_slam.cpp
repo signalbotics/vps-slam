@@ -79,9 +79,6 @@ namespace vps_slam
               auto matches_msg = cv_bridge::CvImage(msg->header, "bgr8", matches_img).toImageMsg();
               matches_pub_->publish(*matches_msg);
             }
-
-            auto streetview_msg = cv_bridge::CvImage(msg->header, "bgr8", streetview_img).toImageMsg();
-            streetview_pub_->publish(*streetview_msg);
           }
         }
       } catch (const std::exception& e) {

@@ -201,7 +201,9 @@ std::pair<cv::Mat, cv::Mat> MatchGoogleStreetView::GetMatchingPoints(const cv::M
         std::cerr << "One of the images is empty." << std::endl;
         throw std::runtime_error("Image is empty.");
     }
-
+    // resize img2 to img1 size
+    cv::Mat resized_img2;
+    cv::resize(img2, resized_img2, cv::Size(img1.cols, img1.rows));
     // Convert images to grayscale if they are not already
     cv::Mat img1_gray, img2_gray;
     if (img1.channels() == 3) {
@@ -210,10 +212,10 @@ std::pair<cv::Mat, cv::Mat> MatchGoogleStreetView::GetMatchingPoints(const cv::M
         img1_gray = img1.clone();
     }
 
-    if (img2.channels() == 3) {
-        cv::cvtColor(img2, img2_gray, cv::COLOR_BGR2GRAY);
+    if (resized_img2.channels() == 3) {
+        cv::cvtColor(resized_img2, img2_gray, cv::COLOR_BGR2GRAY);
     } else {
-        img2_gray = img2.clone();
+        img2_gray = resized_img2.clone();
     }
     cv::Ptr<cv::Feature2D> detector = cv::ORB::create();
 
@@ -226,10 +228,10 @@ std::pair<cv::Mat, cv::Mat> MatchGoogleStreetView::GetMatchingPoints(const cv::M
 
     std::vector<cv::KeyPoint> keypoints2;
     cv::Mat descriptors2;
-    detector->detectAndCompute(img2, cv::noArray(), keypoints2, descriptors2);
+    detector->detectAndCompute(resized_img2, cv::noArray(), keypoints2, descriptors2);
 
-    frame_with_keypoints = img2.clone();
-    cv::drawKeypoints(img2, keypoints2, frame_with_keypoints, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    frame_with_keypoints = resized_img2.clone();
+    cv::drawKeypoints(resized_img2, keypoints2, frame_with_keypoints, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
     
     cv::BFMatcher matcher;
     std::vector<std::vector<cv::DMatch>> matches;
@@ -243,7 +245,7 @@ std::pair<cv::Mat, cv::Mat> MatchGoogleStreetView::GetMatchingPoints(const cv::M
     }
 
     cv::Mat img_matches;
-    cv::drawMatches(img1, keypoints1, img2, keypoints2, good, img_matches, cv::Scalar::all(-1), cv::Scalar::all(-1), std::vector<char>(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+    cv::drawMatches(img1, keypoints1, resized_img2, keypoints2, good, img_matches, cv::Scalar::all(-1), cv::Scalar::all(-1), std::vector<char>(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 
     cv::Mat src_pts(good.size(), 1, CV_32FC2);
     cv::Mat dst_pts(good.size(), 1, CV_32FC2);
