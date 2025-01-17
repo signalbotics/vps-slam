@@ -143,11 +143,12 @@ bool MatchGoogleStreetView::ParseMetadataJson(const std::string& json_str,
                 metadata.heading = std::atan2(dx, dy) * 180.0 / M_PI;
             }
             
-            RCLCPP_INFO(rclcpp::get_logger("vps_slam"), 
-                       "Found Street View image at: %f, %f, heading: %f", 
-                       metadata.latitude, metadata.longitude, metadata.heading);
             return true;
+        } else {
+            RCLCPP_WARN(rclcpp::get_logger("vps_slam"), 
+                       "Parsing metadata JSON failed: %s", j["status"].get<std::string>());
         }
+
     } catch (const std::exception& e) {
         RCLCPP_ERROR(rclcpp::get_logger("vps_slam"), 
                     "Error parsing metadata JSON: %s", e.what());
@@ -216,33 +217,20 @@ std::pair<cv::Mat, cv::Mat> MatchGoogleStreetView::GetMatchingPoints(const cv::M
     }
     cv::Ptr<cv::Feature2D> detector = cv::ORB::create();
 
-    double start_time = cv::getTickCount();
-
     std::vector<cv::KeyPoint> keypoints1;
     cv::Mat descriptors1;
     detector->detectAndCompute(img1, cv::noArray(), keypoints1, descriptors1);
-
-    double end_time = cv::getTickCount();
-    double elapsed_time = (end_time - start_time) / cv::getTickFrequency();
-    std::cout << "Time to create key points: " << elapsed_time << " seconds" << std::endl;
-
     cv::Mat frame_with_keypoints = img1.clone();
     cv::drawKeypoints(img1, keypoints1, frame_with_keypoints, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
-    start_time = cv::getTickCount();
 
     std::vector<cv::KeyPoint> keypoints2;
     cv::Mat descriptors2;
     detector->detectAndCompute(img2, cv::noArray(), keypoints2, descriptors2);
 
-    end_time = cv::getTickCount();
-    elapsed_time = (end_time - start_time) / cv::getTickFrequency();
-    std::cout << "Time to create key points: " << elapsed_time << " seconds" << std::endl;
-
     frame_with_keypoints = img2.clone();
     cv::drawKeypoints(img2, keypoints2, frame_with_keypoints, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
     
-    start_time = cv::getTickCount();
     cv::BFMatcher matcher;
     std::vector<std::vector<cv::DMatch>> matches;
     matcher.knnMatch(descriptors1, descriptors2, matches, 2);
@@ -271,12 +259,10 @@ std::pair<cv::Mat, cv::Mat> MatchGoogleStreetView::GetMatchingPoints(const cv::M
         std::cout << "Homography matrix: \n" << H << std::endl;
     }
     
-    end_time = cv::getTickCount();
-    elapsed_time = (end_time - start_time) / cv::getTickFrequency();
-    std::cout << "Time to match key points: " << elapsed_time << " seconds" << std::endl;
     return {img_matches, H};
 }
 
+// for testing directly 
 int MatchGoogleStreetView::retrieve(double gps_lat, double gps_long, double roi_radius, cv::Mat& image_cam) {
     tot_start_time = cv::getTickCount();
 
@@ -318,6 +304,9 @@ cv::Mat MatchGoogleStreetView::GetHomography(const cv::Mat& current_image) {
 
     // Store metadata for pose estimation
     last_metadata_ = metadata;
+
+    // resize current image to 640x480
+    cv::resize(current_image, current_image, cv::Size(640, 480));
     
     // Get matching points and compute homography
     auto [img_matches, H] = GetMatchingPoints(current_image, last_streetview_image_);
@@ -335,17 +324,21 @@ std::pair<cv::Mat, MatchGoogleStreetView::StreetViewMetadata> MatchGoogleStreetV
     if (!metadata.available) {
         RCLCPP_WARN(rclcpp::get_logger("vps_slam"),
                    "No Street View image available at location: %f, %f", lat, lon);
-        return {cv::Mat(), metadata};
     }
 
+    double start_time = cv::getTickCount();
     // Get image using metadata
     cv::Mat streetview_img = QueryStreetViewImage(metadata);
+    double end_time = cv::getTickCount();
+    double elapsed_time = (end_time - start_time) / cv::getTickFrequency();
+    std::cout << "Time to get image: " << elapsed_time << " seconds" << std::endl;
     if (streetview_img.empty()) {
         RCLCPP_ERROR(rclcpp::get_logger("vps_slam"),
                     "Failed to get Street View image");
         return {cv::Mat(), metadata};
     }
-
+    RCLCPP_INFO(rclcpp::get_logger("vps_slam"),
+               "Got Street View image at location: %f, %f", lat, lon);
     last_streetview_image_ = streetview_img;
     last_metadata_ = metadata;
     has_streetview_image_ = true;

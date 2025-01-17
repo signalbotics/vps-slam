@@ -1,0 +1,13 @@
+vps_slam_node:
+  ros__parameters:
+    gps:
+      roi_radius: 250.0
+      update_rate: 1.0
+    feature_matching:
+      ransac_threshold: 5.0
+      match_ratio: 0.75
+      min_matches: 10
+    street_view:
+      image_size: [640, 480]
+      fov: 73
+      heading: 200 

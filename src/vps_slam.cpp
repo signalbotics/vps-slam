@@ -7,15 +7,35 @@
 
 namespace vps_slam
 {
-  VPSSLAM::VPSSLAM(const rclcpp::NodeOptions& options): Node("vps_slam", options),
+  VPSSLAM::VPSSLAM(const rclcpp::NodeOptions& options): Node("vps_slam_node", options),
     has_new_gps_(false),
     is_image_received(false),
     K_(cv::Mat::eye(3, 3, CV_64F)) // Initialize as identity matrix
   {
-    image_sub = this->create_subscription<sensor_msgs::msg::Image>("image", 10, std::bind(&VPSSLAM::imageCallback, this, std::placeholders::_1));
-    depth_sub = this->create_subscription<sensor_msgs::msg::Image>("depth", 10, std::bind(&VPSSLAM::depthCallback, this, std::placeholders::_1));
-    navsafix_sub = this->create_subscription<sensor_msgs::msg::NavSatFix>("gps/fix", 10, std::bind(&VPSSLAM::navsafixCallback, this, std::placeholders::_1));
-    camera_info_sub = this->create_subscription<sensor_msgs::msg::CameraInfo>("camera_info", 10, std::bind(&VPSSLAM::cameraInfoCallback, this, std::placeholders::_1));
+    // Use reliable QoS for critical data
+    auto reliable_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
+    
+    // Add debug logging for initialization
+    RCLCPP_INFO(this->get_logger(), "Initializing VPS SLAM node");
+    
+    // Create subscriptions with explicit QoS
+    image_sub = this->create_subscription<sensor_msgs::msg::Image>(
+        "image", reliable_qos,
+        std::bind(&VPSSLAM::imageCallback, this, std::placeholders::_1));
+        
+    depth_sub = this->create_subscription<sensor_msgs::msg::Image>(
+        "depth", reliable_qos,
+        std::bind(&VPSSLAM::depthCallback, this, std::placeholders::_1));
+        
+    navsafix_sub = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+        "gps", reliable_qos,
+        std::bind(&VPSSLAM::navsafixCallback, this, std::placeholders::_1));
+        
+    camera_info_sub = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+        "camera_info", reliable_qos,
+        std::bind(&VPSSLAM::cameraInfoCallback, this, std::placeholders::_1));
+        
+    RCLCPP_DEBUG(this->get_logger(), "Subscriptions created successfully");
 
     pose_estimator_ = std::make_unique<PoseEstimator>();
     pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovariance>(
@@ -107,7 +127,7 @@ namespace vps_slam
       // Adjust translation based on Cartesian offsets
       translations[0].at<double>(0) += x_offset;
       translations[0].at<double>(1) += y_offset;
-
+      RCLCPP_INFO(this->get_logger(), "Adjusted translation: %f, %f", translations[0].at<double>(0), translations[0].at<double>(1));
       // Use the first decomposition (in a real implementation, you'd want to select the best one)
       pose_estimator_->updateFromVisual(rotations[0], translations[0]);
       auto current_pose = pose_estimator_->getCurrentPose();
@@ -140,13 +160,19 @@ namespace vps_slam
         msg->k[6], msg->k[7], msg->k[8]);
     
     RCLCPP_INFO(this->get_logger(), "Updated camera matrix from camera info");
+  
+    // close subscriber
+    camera_info_sub.reset();
+
   }
 }
 
-int main() {
-   rclcpp::init(0, nullptr);
-    rclcpp::spin(std::make_shared<vps_slam::VPSSLAM>());
-    rclcpp::shutdown();
+int main(int argc, char** argv)
+{
+  rclcpp::init(argc, argv);
+  auto options = rclcpp::NodeOptions();
+  rclcpp::spin(std::make_shared<vps_slam::VPSSLAM>(options));
+  rclcpp::shutdown();
 
-    return 0;
+  return 0;
 }

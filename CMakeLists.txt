@@ -63,14 +63,11 @@ install(TARGETS
 # Install launch files
 install(DIRECTORY
   launch
+  config
+  params
   DESTINATION share/${PROJECT_NAME}
 )
 
-# Install config files
-install(DIRECTORY
-  config
-  DESTINATION share/${PROJECT_NAME}
-)
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
